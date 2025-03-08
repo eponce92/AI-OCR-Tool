@@ -6,6 +6,31 @@ document.addEventListener('DOMContentLoaded', function() {
     const settingsToggle = document.getElementById('settings-toggle');
     const settingsBody = document.getElementById('settings-body');
     
+    // Text and download control elements
+    const copyTextBtn = document.getElementById('copy-text');
+    const downloadTextBtn = document.getElementById('download-text');
+    const downloadMarkdownBtn = document.getElementById('download-markdown');
+    const downloadDocxBtn = document.getElementById('download-docx');
+    
+    // Font size control elements
+    const decreaseFontBtn = document.getElementById('decrease-font');
+    const resetFontBtn = document.getElementById('reset-font');
+    const increaseFontBtn = document.getElementById('increase-font');
+    const textContentPanel = document.querySelector('.text-content');
+    
+    // Font size control variables
+    let currentFontSize = 14;
+    const minFontSize = 10;
+    const maxFontSize = 24;
+    const fontSizeStep = 2;
+    
+    // Load preferred font size
+    const savedFontSize = localStorage.getItem('preferredFontSize');
+    if (savedFontSize) {
+        currentFontSize = parseInt(savedFontSize);
+        updateFontSize(currentFontSize);
+    }
+    
     // Existing elements
     const uploadForm = document.getElementById('upload-form');
     const fileInput = document.getElementById('document');
@@ -25,10 +50,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const nextPageBtn = document.getElementById('next-page');
     const pageIndicator = document.getElementById('page-indicator');
     
-    // Text control elements
-    const copyTextBtn = document.getElementById('copy-text');
-    const downloadTextBtn = document.getElementById('download-text');
-    
     // Document preview state
     let currentPage = 1;  // Changed to start from 1
     let totalPages = 1;
@@ -36,6 +57,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let allExtractedText = '';
     let pdfDoc = null;
     let currentPreviewType = null; // 'pdf' or 'image'
+    let currentOcrData = null; // Current OCR data storage
     
     // Check if API key exists in localStorage
     const savedApiKey = localStorage.getItem('mistralApiKey');
@@ -344,11 +366,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function displayResults(data) {
         console.log("OCR Response:", data);
+        currentOcrData = data; // Store the data for download handlers
         let resultHtml = '';
         allExtractedText = '';
         
         if (data.debug_info) {
-            console.log("Debug info:", data.debug_info);
             resultHtml += `<div class="debug-info">
                 <h4>Debug Information</h4>
                 <pre>${JSON.stringify(data.debug_info, null, 2)}</pre>
@@ -362,32 +384,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 resultHtml += `<h3 class="page-heading">Page ${index + 1}</h3>`;
                 
                 if (page.markdown && page.markdown.trim()) {
-                    // Convert markdown to HTML while preserving image references
+                    // Convert markdown to HTML while preserving image data URLs
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = marked.parse(page.markdown);
                     
-                    // Process any base64 images in the markdown
+                    // Process any images in the markdown
                     const imgElements = tempDiv.getElementsByTagName('img');
                     Array.from(imgElements).forEach(img => {
+                        // Add classes and ensure alt text is preserved
+                        img.classList.add('inline-image');
+                        const alt = img.getAttribute('alt') || 'Document image';
+                        img.setAttribute('alt', alt);
+                        
+                        // Ensure src attribute is preserved exactly as received
                         const src = img.getAttribute('src');
                         if (src && src.startsWith('data:')) {
-                            img.classList.add('inline-image');
-                            img.setAttribute('alt', img.getAttribute('alt') || 'Inline document image');
+                            // Keep the data URL exactly as is
+                            img.setAttribute('src', src);
                         }
                     });
                     
                     resultHtml += `<div class="page-text">${tempDiv.innerHTML}</div>`;
                     allExtractedText += page.text + '\n\n';
                 } else if (page.text && page.text.trim()) {
-                    // Handle legacy format or raw text
-                    if (page.text.startsWith('Raw OCR output:')) {
-                        resultHtml += `<div class="raw-ocr">
-                            <p class="note">Raw OCR output is shown below:</p>
-                            <pre class="raw-text">${page.text}</pre>
-                        </div>`;
-                    } else {
-                        resultHtml += `<div class="page-text"><pre>${page.text}</pre></div>`;
-                    }
+                    // Handle raw text
+                    resultHtml += `<div class="page-text"><pre>${page.text}</pre></div>`;
                     allExtractedText += page.text + '\n\n';
                 } else {
                     resultHtml += '<p class="no-text-message">No text found on this page</p>';
@@ -397,15 +418,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (page.images && page.images.length > 0) {
                     resultHtml += '<div class="additional-images">';
                     page.images.forEach(img => {
-                        if (img.image_base64 && !page.markdown.includes(img.image_base64)) {
-                            resultHtml += `
-                                <figure class="image-figure">
-                                    <img src="data:image/png;base64,${img.image_base64}" 
-                                         alt="${img.text || 'Document image'}"
-                                         class="document-image">
-                                    ${img.text ? `<figcaption>${img.text}</figcaption>` : ''}
-                                </figure>
-                            `;
+                        if (img.image_base64) {
+                            // Detect image type from base64 data
+                            let imgType = 'png';  // Default type
+                            const base64Data = img.image_base64;
+                            if (base64Data.startsWith('/9j/')) {
+                                imgType = 'jpeg';
+                            } else if (base64Data.startsWith('iVBORw0K')) {
+                                imgType = 'png';
+                            }
+                            
+                            // Only add images that aren't already in the markdown
+                            if (!page.markdown.includes(img.image_base64)) {
+                                resultHtml += `
+                                    <figure class="image-figure">
+                                        <img src="data:image/${imgType};base64,${img.image_base64}" 
+                                             alt="${img.text || 'Document image'}"
+                                             class="document-image">
+                                        ${img.text ? `<figcaption>${img.text}</figcaption>` : ''}
+                                    </figure>
+                                `;
+                            }
                         }
                     });
                     resultHtml += '</div>';
@@ -419,18 +452,14 @@ document.addEventListener('DOMContentLoaded', function() {
         
         ocrResults.innerHTML = resultHtml;
         
-        // If we have extracted text, enable the copy and download buttons
-        if (allExtractedText.trim()) {
-            copyTextBtn.disabled = false;
-            downloadTextBtn.disabled = false;
-            downloadMarkdownBtn.disabled = false;
-            downloadDocxBtn.disabled = false;
-        } else {
-            copyTextBtn.disabled = true;
-            downloadTextBtn.disabled = true;
-            downloadMarkdownBtn.disabled = true;
-            downloadDocxBtn.disabled = true;
-        }
+        // If we have extracted text or markdown content, enable the buttons
+        const hasContent = allExtractedText.trim() || 
+                          (data.pages && data.pages.some(page => page.markdown?.trim()));
+        
+        copyTextBtn.disabled = !hasContent;
+        downloadTextBtn.disabled = !hasContent;
+        downloadMarkdownBtn.disabled = !hasContent;
+        downloadDocxBtn.disabled = !hasContent;
         
         // Set up page navigation synchronization
         setupPageSync(data.pages ? data.pages.length : 0);
@@ -736,24 +765,8 @@ document.addEventListener('DOMContentLoaded', function() {
         loadingSpinner.style.display = 'none';
     }
 
-    // Font size controls
-    const decreaseFontBtn = document.getElementById('decrease-font');
-    const resetFontBtn = document.getElementById('reset-font');
-    const increaseFontBtn = document.getElementById('increase-font');
-    const textContent = document.querySelector('.text-content');
-    
-    // Download format buttons
-    const downloadMarkdownBtn = document.getElementById('download-markdown');
-    const downloadDocxBtn = document.getElementById('download-docx');
-    
-    // Font size control (stored in CSS variable)
-    let currentFontSize = 14;
-    const minFontSize = 10;
-    const maxFontSize = 24;
-    const fontSizeStep = 2;
-    
     function updateFontSize(size) {
-        textContent.style.setProperty('--content-font-size', `${size}px`);
+        textContentPanel.style.setProperty('--content-font-size', `${size}px`);
         
         // Store preference
         localStorage.setItem('preferredFontSize', size);
@@ -761,13 +774,6 @@ document.addEventListener('DOMContentLoaded', function() {
         // Update button states
         decreaseFontBtn.disabled = size <= minFontSize;
         increaseFontBtn.disabled = size >= maxFontSize;
-    }
-    
-    // Load preferred font size
-    const savedFontSize = localStorage.getItem('preferredFontSize');
-    if (savedFontSize) {
-        currentFontSize = parseInt(savedFontSize);
-        updateFontSize(currentFontSize);
     }
     
     // Font size control event listeners
@@ -792,15 +798,14 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Download format handlers
     downloadMarkdownBtn.addEventListener('click', () => {
+        if (!currentOcrData || !currentOcrData.pages) return;
+        
         // Create markdown version
         let markdownContent = '';
-        document.querySelectorAll('.ocr-page').forEach((page, index) => {
+        currentOcrData.pages.forEach((page, index) => {
             if (index > 0) markdownContent += '\n\n---\n\n';
             markdownContent += `# Page ${index + 1}\n\n`;
-            
-            // Get the page's markdown content if available, otherwise use text
-            const pageData = data.pages[index];
-            markdownContent += pageData.markdown || pageData.text;
+            markdownContent += page.markdown || page.text || '';
         });
         
         // Download as .md file

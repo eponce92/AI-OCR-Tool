@@ -84,7 +84,8 @@ def upload_file():
             # Clean up files in case of error
             try:
                 os.remove(file_path)
-                os.remove(preview_path)
+                if 'preview_path' in locals():
+                    os.remove(preview_path)
             except OSError:
                 pass
             
@@ -566,9 +567,11 @@ def process_ocr_response(response_data):
                 # Extract and process images
                 images = getattr(page, "images", [])
                 if images:
-                    for img in images:
+                    for img_idx, img in enumerate(images):
+                        # Generate a unique image ID for this page and image
+                        unique_img_id = f"img-p{idx}-{img_idx}"
                         image_data = {
-                            "id": getattr(img, "id", ""),
+                            "id": unique_img_id,
                             "coordinates": {
                                 "top_left": [getattr(img, "top_left_x", 0), getattr(img, "top_left_y", 0)], 
                                 "bottom_right": [getattr(img, "bottom_right_x", 0), getattr(img, "bottom_right_y", 0)]
@@ -597,7 +600,15 @@ def process_ocr_response(response_data):
                     # Insert image references in markdown
                     for img in page_data["images"]:
                         if img["image_base64"]:
-                            img_markdown = f"\n![{img['id']}](data:image/png;base64,{img['image_base64']})\n"
+                            # Detect image type from base64 data or default to PNG
+                            img_type = "png"  # Default type
+                            base64_data = img["image_base64"]
+                            if base64_data.startswith('/9j/'): 
+                                img_type = "jpeg"
+                            elif base64_data.startswith('iVBORw0K'):
+                                img_type = "png"
+                            
+                            img_markdown = f"\n![{img['id']}](data:image/{img_type};base64,{img['image_base64']})\n"
                             # Insert image reference near its associated text if exists
                             if img["text"] and img["text"] in md_content:
                                 md_content = md_content.replace(img["text"], f"{img['text']}{img_markdown}")
