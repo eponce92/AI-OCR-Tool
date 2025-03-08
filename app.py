@@ -12,6 +12,7 @@ import os
 import json
 import requests
 from langdetect import detect
+from mistralai import Mistral
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -426,7 +427,7 @@ def encode_image(image_path):
 
 def process_with_mistral_ocr(file_path, filename, api_key, include_images=False):
     """
-    Process document with Mistral OCR API using direct base64 encoding for images
+    Process document with Mistral OCR API using the official SDK
     """
     # Get file extension and determine MIME type
     _, file_ext = os.path.splitext(filename)
@@ -448,57 +449,35 @@ def process_with_mistral_ocr(file_path, filename, api_key, include_images=False)
     print(f"File type: {mime_type}")
     
     try:
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
+        # Initialize Mistral client
+        client = Mistral(api_key=api_key)
         
         if is_pdf:
             # For PDFs, use the file upload approach
             print("\n1. Uploading PDF to Mistral servers...")
-            upload_url = "https://api.mistral.ai/v1/files"
             
-            with open(file_path, 'rb') as f:
-                files = {
-                    'file': (filename, f, mime_type),
-                    'purpose': (None, 'ocr')
-                }
-                
-                upload_response = requests.post(
-                    upload_url,
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    files=files
-                )
-                
-                if upload_response.status_code != 200:
-                    raise Exception(f"PDF upload failed: {upload_response.text}")
-                
-                file_id = upload_response.json().get('id')
-                
-                # Get signed URL
-                signed_url_response = requests.get(
-                    f"https://api.mistral.ai/v1/files/{file_id}/url",
-                    headers=headers
-                )
-                
-                if signed_url_response.status_code != 200:
-                    raise Exception(f"Failed to get signed URL: {signed_url_response.text}")
-                
-                signed_url = signed_url_response.json().get('url')
-                
-                # Make OCR request for PDF
-                payload = {
-                    "model": "mistral-ocr-latest",
-                    "document": {
-                        "type": "document_url",
-                        "document_url": signed_url,
-                        "document_name": filename
+            with open(file_path, "rb") as f:
+                uploaded_file = client.files.upload(
+                    file={
+                        "file_name": filename,
+                        "content": f,
                     },
-                    "options": {
-                        "include_image_base64": True,
-                        "include_text_annotations": True
-                    }
-                }
+                    purpose="ocr"
+                )
+            
+            # Get signed URL for the uploaded file
+            signed_url = client.files.get_signed_url(file_id=uploaded_file.id)
+            
+            # Make OCR request for PDF
+            ocr_response = client.ocr.process(
+                model="mistral-ocr-latest",
+                document={
+                    "type": "document_url",
+                    "document_url": signed_url.url,
+                    "document_name": filename
+                },
+                include_image_base64=include_images
+            )
         else:
             # For images, use base64 encoding
             print("\n1. Encoding image as base64...")
@@ -507,79 +486,17 @@ def process_with_mistral_ocr(file_path, filename, api_key, include_images=False)
                 raise Exception("Failed to encode image")
             
             # Make OCR request for image
-            payload = {
-                "model": "mistral-ocr-latest",
-                "document": {
+            ocr_response = client.ocr.process(
+                model="mistral-ocr-latest",
+                document={
                     "type": "image_url",
                     "image_url": f"data:{mime_type};base64,{base64_image}"
                 },
-                "options": {
-                    "include_image_base64": True,
-                    "include_text_annotations": True
-                }
-            }
-        
-        # Make the OCR API call
-        print("\n2. Sending OCR request...")
-        print(f"Request payload: {json.dumps(payload)}")
-        
-        response = requests.post(
-            "https://api.mistral.ai/v1/ocr",
-            json=payload,
-            headers=headers
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"OCR request failed: {response.text}")
-        
-        response_data = response.json()
-        print(f"\nInitial OCR Response: {json.dumps(response_data)}")
-        
-        # If we have a task ID, wait for processing to complete
-        if "task_id" in response_data:
-            task_id = response_data["task_id"]
-            print(f"\n3. Got task ID {task_id}, waiting for processing to complete...")
-            
-            max_retries = 30
-            retry_delay = 2  # seconds
-            
-            for attempt in range(max_retries):
-                print(f"\nChecking OCR status (attempt {attempt + 1}/{max_retries})...")
-                status_response = requests.get(
-                    f"https://api.mistral.ai/v1/ocr/{task_id}",
-                    headers=headers
-                )
-                
-                if status_response.status_code == 200:
-                    status_data = status_response.json()
-                    print(f"Status: {json.dumps(status_data)}")
-                    
-                    if status_data.get("status") == "completed":
-                        print("\nOCR processing completed successfully!")
-                        response_data = status_data
-                        break
-                    elif status_data.get("status") == "failed":
-                        raise Exception(f"OCR processing failed: {status_data.get('error')}")
-                    else:
-                        print(f"Current status: {status_data.get('status', 'unknown')}")
-                        print(f"Waiting {retry_delay} seconds before next check...")
-                        import time
-                        time.sleep(retry_delay)
-                else:
-                    print(f"Failed to get status update (HTTP {status_response.status_code})")
-                    if attempt < max_retries - 1:
-                        print(f"Retrying in {retry_delay} seconds...")
-                        import time
-                        time.sleep(retry_delay)
-                    else:
-                        raise Exception("Failed to check OCR status after maximum retries")
-            else:
-                raise Exception("OCR processing timed out after maximum retries")
-        
-        print(f"\nFinal OCR Response: {json.dumps(response_data)}")
+                include_image_base64=include_images
+            )
         
         # Process the response
-        processed_response = process_ocr_response(response_data)
+        processed_response = process_ocr_response(ocr_response)
         print(f"\nProcessed OCR Response: {json.dumps(processed_response)}")
         
         return processed_response
@@ -587,6 +504,27 @@ def process_with_mistral_ocr(file_path, filename, api_key, include_images=False)
     except Exception as e:
         print(f"\nError during OCR processing: {str(e)}")
         raise
+
+def serialize_dimensions(dimensions):
+    """Convert OCRPageDimensions object to a serializable dictionary"""
+    if dimensions is None:
+        return {}
+    return {
+        "width": getattr(dimensions, "width", 0),
+        "height": getattr(dimensions, "height", 0),
+        "rotation": getattr(dimensions, "rotation", 0),
+        "unit": getattr(dimensions, "unit", "pixel")
+    }
+
+def serialize_usage_info(usage_info):
+    """Convert OCRUsageInfo object to a serializable dictionary"""
+    if usage_info is None:
+        return {}
+    return {
+        "total_tokens": getattr(usage_info, "total_tokens", 0),
+        "completion_tokens": getattr(usage_info, "completion_tokens", 0),
+        "prompt_tokens": getattr(usage_info, "prompt_tokens", 0)
+    }
 
 def process_ocr_response(response_data):
     """
@@ -596,47 +534,49 @@ def process_ocr_response(response_data):
     from langdetect import detect
     
     standardized_response = {
-        "model": response_data.get("model", "mistral-ocr"),
+        "model": getattr(response_data, "model", "mistral-ocr"),
         "pages": [],
         "metadata": {
             "languages": [],
             "topics": [],
             "total_pages": 0
         },
-        "usage_info": response_data.get("usage_info", {})
+        "usage_info": serialize_usage_info(getattr(response_data, "usage_info", None))
     }
     
     try:
         # Collect all text for language and topic detection
         all_text = []
         
-        # For newer OCR responses that include dimensions and images
-        if isinstance(response_data, dict) and "pages" in response_data:
-            standardized_response["metadata"]["total_pages"] = len(response_data["pages"])
+        # Access pages directly from response object
+        pages = getattr(response_data, "pages", [])
+        if pages:
+            standardized_response["metadata"]["total_pages"] = len(pages)
             
-            for idx, page in enumerate(response_data["pages"]):
-                # Initialize page data
+            for idx, page in enumerate(pages):
+                # Initialize page data with serialized dimensions
                 page_data = {
                     "page_num": idx,
                     "text": "",
-                    "dimensions": page.get("dimensions", {}),
+                    "dimensions": serialize_dimensions(getattr(page, "dimensions", None)),
                     "images": [],
                     "markdown": ""  # Will contain text with image references
                 }
                 
-                # Extract and process images first
-                if "images" in page:
-                    for img in page["images"]:
+                # Extract and process images
+                images = getattr(page, "images", [])
+                if images:
+                    for img in images:
                         image_data = {
-                            "id": img.get("id", ""),
+                            "id": getattr(img, "id", ""),
                             "coordinates": {
-                                "top_left": (img.get("top_left_x", 0), img.get("top_left_y", 0)),
-                                "bottom_right": (img.get("bottom_right_x", 0), img.get("bottom_right_y", 0))
+                                "top_left": [getattr(img, "top_left_x", 0), getattr(img, "top_left_y", 0)], 
+                                "bottom_right": [getattr(img, "bottom_right_x", 0), getattr(img, "bottom_right_y", 0)]
                             },
-                            "text": img.get("text", ""),
-                            "confidence": img.get("confidence", 0),
-                            "type": img.get("type", "unknown"),
-                            "image_base64": img.get("image_base64", "")
+                            "text": getattr(img, "text", ""),
+                            "confidence": float(getattr(img, "confidence", 0)),
+                            "type": getattr(img, "type", "unknown"),
+                            "image_base64": getattr(img, "image_base64", "")
                         }
                         page_data["images"].append(image_data)
                         
@@ -648,11 +588,11 @@ def process_ocr_response(response_data):
                             all_text.append(image_data["text"])
                 
                 # Extract text content
-                text_content = page.get("text", "") or page.get("content", "")
+                text_content = getattr(page, "text", "") or getattr(page, "content", "")
                 page_data["text"] = text_content
                 
                 # Generate markdown with image references
-                md_content = page.get("markdown", text_content)
+                md_content = getattr(page, "markdown", text_content)
                 if page_data["images"]:
                     # Insert image references in markdown
                     for img in page_data["images"]:
@@ -670,9 +610,9 @@ def process_ocr_response(response_data):
                 
                 standardized_response["pages"].append(page_data)
                 
-        # If no pages were processed but we have text at the root level
-        elif "text" in response_data:
-            text = response_data["text"]
+        # If no pages were processed but we have text directly
+        elif hasattr(response_data, "text"):
+            text = response_data.text
             all_text.append(text)
             standardized_response["pages"].append({
                 "page_num": 0,
@@ -697,50 +637,15 @@ def process_ocr_response(response_data):
             topics = detect_topics(combined_text)
             standardized_response["metadata"]["topics"] = topics
         
-        # If we still have no content, this is a raw OCR response
+        # If we still have no content, set default message
         if not standardized_response["pages"]:
-            print("No text found in standard fields, checking raw response...")
-            standardized_response["debug_info"] = {
-                "raw_response": response_data,
-                "response_type": str(type(response_data))
-            }
-            
-            # Try to extract text from raw response
-            if isinstance(response_data, dict):
-                possible_text = []
-                
-                def extract_text_from_dict(d):
-                    for k, v in d.items():
-                        if k in ["text", "content", "markdown"] and isinstance(v, str):
-                            possible_text.append(v)
-                        elif isinstance(v, dict):
-                            extract_text_from_dict(v)
-                        elif isinstance(v, list):
-                            for item in v:
-                                if isinstance(item, dict):
-                                    extract_text_from_dict(item)
-                
-                extract_text_from_dict(response_data)
-                
-                if possible_text:
-                    text = next((t for t in possible_text if t.strip()), "")
-                    if text:
-                        standardized_response["pages"] = [{
-                            "page_num": 0,
-                            "text": text.strip(),
-                            "markdown": text,
-                            "images": []
-                        }]
-                        standardized_response["metadata"]["total_pages"] = 1
-            
-            if not standardized_response["pages"]:
-                standardized_response["pages"] = [{
-                    "page_num": 0,
-                    "text": "No text was extracted from this image. Please ensure the image contains readable text.",
-                    "markdown": "No text was extracted from this image. Please ensure the image contains readable text.",
-                    "images": []
-                }]
-                standardized_response["metadata"]["total_pages"] = 1
+            standardized_response["pages"] = [{
+                "page_num": 0,
+                "text": "No text was extracted from this image. Please ensure the image contains readable text.",
+                "markdown": "No text was extracted from this image. Please ensure the image contains readable text.",
+                "images": []
+            }]
+            standardized_response["metadata"]["total_pages"] = 1
     
     except Exception as e:
         print(f"Error processing OCR response: {str(e)}")
@@ -779,6 +684,30 @@ def detect_topics(text):
             topics.append(topic)
     
     return topics
+
+def replace_images_in_markdown(markdown_str: str, images_dict: dict) -> str:
+    """Replace image placeholders with base64 data URLs in markdown"""
+    for img_name, base64_str in images_dict.items():
+        markdown_str = markdown_str.replace(
+            f"![{img_name}]({img_name})", 
+            f"![{img_name}](data:image/png;base64,{base64_str})"
+        )
+    return markdown_str
+
+def get_combined_markdown(ocr_response) -> str:
+    """Combine markdown from all pages with image replacements"""
+    markdowns = []
+    for page in getattr(ocr_response, "pages", []):
+        image_data = {}
+        for img in getattr(page, "images", []):
+            image_base64 = getattr(img, "image_base64", None)
+            if image_base64:
+                image_data[getattr(img, "id", "")] = image_base64
+        markdowns.append(replace_images_in_markdown(
+            getattr(page, "markdown", "") or getattr(page, "text", ""), 
+            image_data
+        ))
+    return "\n\n".join(markdowns)
 
 if __name__ == '__main__':
     app.run(debug=True)

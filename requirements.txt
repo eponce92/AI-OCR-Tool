@@ -3,3 +3,4 @@ requests>=2.26.0
 Werkzeug>=2.0.0
 langdetect>=1.0.9
 python-docx>=0.8.11
+mistralai
