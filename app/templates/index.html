@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-body">
+                {% if not has_api_key %}
+                <div class="alert alert-warning">
+                    Please configure your Mistral API key in the <a href="{{ url_for('main.settings') }}">settings</a>.
+                </div>
+                {% endif %}
+                
+                <form id="uploadForm" class="mb-3">
+                    <div class="mb-3">
+                        <label for="fileInput" class="form-label">Upload Document</label>
+                        <input type="file" class="form-control" id="fileInput" name="file" accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp" {% if not has_api_key %}disabled{% endif %}>
+                    </div>
+                    <button type="submit" class="btn btn-primary" {% if not has_api_key %}disabled{% endif %}>
+                        <i class="bi bi-upload"></i> Process Document
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">
+                Document Preview
+            </div>
+            <div class="card-body">
+                <div id="preview" class="preview-container">
+                    <div class="text-center text-muted">
+                        <i class="bi bi-file-earmark-text display-1"></i>
+                        <p>Upload a document to see preview</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Markdown Result</span>
+                <button id="copyButton" class="btn btn-sm btn-outline-secondary" style="display: none;">
+                    <i class="bi bi-clipboard"></i> Copy
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="result" class="markdown-body"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.preview-container {
+    min-height: 300px;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.markdown-body {
+    min-height: 300px;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.preview-container img {
+    max-width: 100%;
+    height: auto;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadForm = document.getElementById('uploadForm');
+    const fileInput = document.getElementById('fileInput');
+    const preview = document.getElementById('preview');
+    const result = document.getElementById('result');
+    const copyButton = document.getElementById('copyButton');
+    
+    uploadForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        
+        try {
+            const response = await fetch('{{ url_for("main.upload_file") }}', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // Display preview if it's an image
+            const file = fileInput.files[0];
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
+                };
+                reader.readAsDataURL(file);
+            } else {
+                preview.innerHTML = `<div class="text-center text-muted">
+                    <i class="bi bi-file-pdf display-1"></i>
+                    <p>PDF document loaded</p>
+                </div>`;
+            }
+            
+            // Display markdown result
+            result.innerHTML = marked.parse(data.markdown);
+            copyButton.style.display = 'block';
+            
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    });
+    
+    copyButton.addEventListener('click', function() {
+        const markdown = result.textContent;
+        navigator.clipboard.writeText(markdown).then(function() {
+            const originalText = copyButton.innerHTML;
+            copyButton.innerHTML = '<i class="bi bi-check"></i> Copied!';
+            setTimeout(() => {
+                copyButton.innerHTML = originalText;
+            }, 2000);
+        });
+    });
+});
+</script>
+{% endblock %} 

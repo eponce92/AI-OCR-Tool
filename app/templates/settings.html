@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Document OCR Converter{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">API Settings</h5>
+            </div>
+            <div class="card-body">
+                <form id="settingsForm">
+                    <div class="mb-3">
+                        <label for="apiKey" class="form-label">Mistral API Key</label>
+                        <div class="input-group">
+                            <input type="password" class="form-control" id="apiKey" name="api_key" 
+                                   placeholder="Enter your Mistral API key" required>
+                            <button type="button" class="btn btn-outline-secondary" id="togglePassword">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                        <div class="form-text">
+                            Get your API key from <a href="https://mistral.ai" target="_blank">Mistral AI</a>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between align-items-center">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Save Settings
+                        </button>
+                        {% if has_api_key %}
+                        <span class="text-success">
+                            <i class="bi bi-check-circle"></i> API Key configured
+                        </span>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const settingsForm = document.getElementById('settingsForm');
+    const apiKeyInput = document.getElementById('apiKey');
+    const togglePassword = document.getElementById('togglePassword');
+    
+    togglePassword.addEventListener('click', function() {
+        const type = apiKeyInput.getAttribute('type') === 'password' ? 'text' : 'password';
+        apiKeyInput.setAttribute('type', type);
+        togglePassword.innerHTML = type === 'password' ? 
+            '<i class="bi bi-eye"></i>' : 
+            '<i class="bi bi-eye-slash"></i>';
+    });
+    
+    settingsForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        try {
+            const response = await fetch('{{ url_for("main.settings") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    'api_key': apiKeyInput.value
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                window.location.reload();
+            } else {
+                throw new Error(data.error || 'Failed to save API key');
+            }
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    });
+});
+</script>
+{% endblock %} 

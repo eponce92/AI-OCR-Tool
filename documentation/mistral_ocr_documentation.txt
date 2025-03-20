@@ -1,0 +1,302 @@
+
+OCR and Document Understanding
+Document OCR processor
+The Document OCR (Optical Character Recognition) processor, powered by our latest OCR model mistral-ocr-latest, enables you to extract text and structured content from PDF documents.
+
+Key features:
+
+Extracts text content while maintaining document structure and hierarchy
+Preserves formatting like headers, paragraphs, lists and tables
+Returns results in markdown format for easy parsing and rendering
+Handles complex layouts including multi-column text and mixed content
+Processes documents at scale with high accuracy
+Supports multiple document formats including PDF, images, and uploaded documents
+The OCR processor returns both the extracted text content and metadata about the document structure, making it easy to work with the recognized content programmatically.
+
+OCR with PDF
+python
+typescript
+curl
+import os
+from mistralai import Mistral
+
+api_key = os.environ["MISTRAL_API_KEY"]
+client = Mistral(api_key=api_key)
+
+ocr_response = client.ocr.process(
+    model="mistral-ocr-latest",
+    document={
+        "type": "document_url",
+        "document_url": "https://arxiv.org/pdf/2201.04234"
+    },
+    include_image_base64=True
+)
+
+Example output:
+OCR with uploaded PDF
+You can also upload a PDF file and get the OCR results from the uploaded PDF.
+
+Upload a file
+python
+typescript
+curl
+from mistralai import Mistral
+import os
+
+api_key = os.environ["MISTRAL_API_KEY"]
+
+client = Mistral(api_key=api_key)
+
+uploaded_pdf = client.files.upload(
+    file={
+        "file_name": "uploaded_file.pdf",
+        "content": open("uploaded_file.pdf", "rb"),
+    },
+    purpose="ocr"
+)  
+
+Retrieve File
+python
+typescript
+curl
+client.files.retrieve(file_id=uploaded_pdf.id)
+
+id='00edaf84-95b0-45db-8f83-f71138491f23' object='file' size_bytes=3749788 created_at=1741023462 filename='uploaded_file.pdf' purpose='ocr' sample_type='ocr_input' source='upload' deleted=False num_lines=None
+
+Get signed URL
+python
+typescript
+curl
+signed_url = client.files.get_signed_url(file_id=uploaded_pdf.id)
+
+Get OCR results
+python
+typescript
+curl
+import os
+from mistralai import Mistral
+
+api_key = os.environ["MISTRAL_API_KEY"]
+client = Mistral(api_key=api_key)
+
+ocr_response = client.ocr.process(
+    model="mistral-ocr-latest",
+    document={
+        "type": "document_url",
+        "document_url": signed_url.url,
+    }
+)
+
+OCR with image
+python
+typescript
+curl
+import os
+from mistralai import Mistral
+
+api_key = os.environ["MISTRAL_API_KEY"]
+client = Mistral(api_key=api_key)
+
+ocr_response = client.ocr.process(
+    model="mistral-ocr-latest",
+    document={
+        "type": "image_url",
+        "image_url": "https://raw.githubusercontent.com/mistralai/cookbook/refs/heads/main/mistral/ocr/receipt.png"
+    }
+)
+
+
+Or passing a Base64 encoded image:
+
+import base64
+import requests
+import os
+from mistralai import Mistral
+
+def encode_image(image_path):
+    """Encode the image to base64."""
+    try:
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode('utf-8')
+    except FileNotFoundError:
+        print(f"Error: The file {image_path} was not found.")
+        return None
+    except Exception as e:  # Added general exception handling
+        print(f"Error: {e}")
+        return None
+
+# Path to your image
+image_path = "path_to_your_image.jpg"
+
+# Getting the base64 string
+base64_image = encode_image(image_path)
+
+api_key = os.environ["MISTRAL_API_KEY"]
+client = Mistral(api_key=api_key)
+
+ocr_response = client.ocr.process(
+    model="mistral-ocr-latest",
+    document={
+        "type": "image_url",
+        "image_url": f"data:image/jpeg;base64,{base64_image}" 
+    }
+)
+
+Document understanding
+The Document understanding capability combines OCR with large language model capabilities to enable natural language interaction with document content. This allows you to extract information and insights from documents by asking questions in natural language.
+
+The workflow consists of two main steps:
+
+Document Processing: OCR extracts text, structure, and formatting, creating a machine-readable version of the document.
+
+Language Model Understanding: The extracted document content is analyzed by a large language model. You can ask questions or request information in natural language. The model understands context and relationships within the document and can provide relevant answers based on the document content.
+
+Key capabilities:
+
+Question answering about specific document content
+Information extraction and summarization
+Document analysis and insights
+Multi-document queries and comparisons
+Context-aware responses that consider the full document
+Common use cases:
+
+Analyzing research papers and technical documents
+Extracting information from business documents
+Processing legal documents and contracts
+Building document Q&A applications
+Automating document-based workflows
+The examples below show how to interact with a PDF document using natural language:
+
+python
+typescript
+curl
+import os
+from mistralai import Mistral
+
+# Retrieve the API key from environment variables
+api_key = os.environ["MISTRAL_API_KEY"]
+
+# Specify model
+model = "mistral-small-latest"
+
+# Initialize the Mistral client
+client = Mistral(api_key=api_key)
+
+# Define the messages for the chat
+messages = [
+    {
+        "role": "user",
+        "content": [
+            {
+                "type": "text",
+                "text": "what is the last sentence in the document"
+            },
+            {
+                "type": "document_url",
+                "document_url": "https://arxiv.org/pdf/1805.04770"
+            }
+        ]
+    }
+]
+
+# Get the chat response
+chat_response = client.chat.complete(
+    model=model,
+    messages=messages
+)
+
+# Print the content of the response
+print(chat_response.choices[0].message.content)
+
+# Output: 
+# The last sentence in the document is:\n\n\"Zaremba, W., Sutskever, I., and Vinyals, O. Recurrent neural network regularization. arXiv:1409.2329, 2014.
+
+Cookbooks
+For more information and guides on how to make use of OCR and leverage document understanding, we have the following cookbooks:
+
+Tool Use and Document Understanding
+Batch OCR
+Structured OCR
+FAQ
+Are there any limits regarding the OCR API?
+Yes, there are certain limitations for the OCR API. Uploaded document files must not exceed 50 MB in size and should be no longer than 1,000 pages.
+
+
+
+from mistralai.models import OCRResponse
+from IPython.display import Markdown, display
+
+def replace_images_in_markdown(markdown_str: str, images_dict: dict) -> str:
+    """
+    Replace image placeholders in markdown with base64-encoded images.
+
+    Args:
+        markdown_str: Markdown text containing image placeholders
+        images_dict: Dictionary mapping image IDs to base64 strings
+
+    Returns:
+        Markdown text with images replaced by base64 data
+    """
+    for img_name, base64_str in images_dict.items():
+        markdown_str = markdown_str.replace(
+            f"![{img_name}]({img_name})", f"![{img_name}]({base64_str})"
+        )
+    return markdown_str
+
+def get_combined_markdown(ocr_response: OCRResponse) -> str:
+    """
+    Combine OCR text and images into a single markdown document.
+
+    Args:
+        ocr_response: Response from OCR processing containing text and images
+
+    Returns:
+        Combined markdown string with embedded images
+    """
+    markdowns: list[str] = []
+    # Extract images from page
+    for page in ocr_response.pages:
+        image_data = {}
+        for img in page.images:
+            image_data[img.id] = img.image_base64
+        # Replace image placeholders with actual images
+        markdowns.append(replace_images_in_markdown(page.markdown, image_data))
+
+    return "\n\n".join(markdowns)
+
+# Display combined markdowns and images
+display(Markdown(get_combined_markdown(pdf_response)))
+
+
+# Import required libraries
+from pathlib import Path
+from mistralai import DocumentURLChunk, ImageURLChunk, TextChunk
+import json
+
+# Verify PDF file exists
+pdf_file = Path("mistral7b.pdf")
+assert pdf_file.is_file()
+
+# Upload PDF file to Mistral's OCR service
+uploaded_file = client.files.upload(
+    file={
+        "file_name": pdf_file.stem,
+        "content": pdf_file.read_bytes(),
+    },
+    purpose="ocr",
+)
+
+# Get URL for the uploaded file
+signed_url = client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
+
+# Process PDF with OCR, including embedded images
+pdf_response = client.ocr.process(
+    document=DocumentURLChunk(document_url=signed_url.url),
+    model="mistral-ocr-latest",
+    include_image_base64=True
+)
+
+# Convert response to JSON format
+response_dict = json.loads(pdf_response.model_dump_json())
+
+print(json.dumps(response_dict, indent=4)[0:1000]) # check the first 1000 characters
