@@ -11,15 +11,20 @@
                 </div>
                 {% endif %}
                 
-                <form id="uploadForm" class="mb-3">
-                    <div class="mb-3">
-                        <label for="fileInput" class="form-label">Upload Document</label>
-                        <input type="file" class="form-control" id="fileInput" name="file" accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp" {% if not has_api_key %}disabled{% endif %}>
-                    </div>
-                    <button type="submit" class="btn btn-primary" {% if not has_api_key %}disabled{% endif %}>
-                        <i class="bi bi-upload"></i> Process Document
-                    </button>
-                </form>
+                <div class="upload-section">
+                    <form id="uploadForm" class="mb-3">
+                        <div class="mb-3">
+                            <label for="fileInput" class="form-label">Upload Document</label>
+                            <input type="file" class="form-control" id="fileInput" name="file" accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp" {% if not has_api_key %}disabled{% endif %}>
+                        </div>
+                        <button type="submit" class="btn btn-primary" {% if not has_api_key %}disabled{% endif %}>
+                            <i class="bi bi-upload"></i> Process Document
+                        </button>
+                    </form>
+                    <p class="text-muted mt-2">
+                        <i class="bi bi-info-circle"></i> Drag and drop files here or click to select
+                    </p>
+                </div>
             </div>
         </div>
     </div>
@@ -74,6 +79,19 @@
     max-width: 100%;
     height: auto;
 }
+
+.upload-section {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    transition: border-color 0.3s ease;
+}
+
+.upload-section.highlight {
+    border-color: #0d6efd;
+    background-color: rgba(13, 110, 253, 0.05);
+}
 </style>
 {% endblock %}
 
@@ -89,9 +107,16 @@ document.addEventListener('DOMContentLoaded', function() {
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         
+        if (!fileInput.files.length) {
+            alert('Please select a file first.');
+            return;
+        }
+
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         
+        showLoading();
+
         try {
             const response = await fetch('{{ url_for("main.upload_file") }}', {
                 method: 'POST',
@@ -124,7 +149,10 @@ document.addEventListener('DOMContentLoaded', function() {
             copyButton.style.display = 'block';
             
         } catch (error) {
-            alert('Error: ' + error.message);
+            console.error('Error:', error);
+            result.innerHTML = `<div class="alert alert-danger">Error processing document: ${error.message}</div>`;
+        } finally {
+            hideLoading();
         }
     });
     

@@ -1,7 +1,7 @@
 import os
 from flask import Blueprint, render_template, request, jsonify, current_app
 from werkzeug.utils import secure_filename
-from ..services.mistral_service import mistral_service
+from .services.mistral_service import mistral_service
 import logging
 
 # Configure logging
@@ -18,25 +18,21 @@ def ensure_upload_dir():
 
 @main.route('/')
 def index():
-    """Render the main page."""
     has_api_key = bool(mistral_service.api_key)
     return render_template('index.html', has_api_key=has_api_key)
 
 @main.route('/settings', methods=['GET', 'POST'])
 def settings():
-    """Handle settings page and API key updates."""
     if request.method == 'POST':
         api_key = request.form.get('api_key')
         if api_key:
             mistral_service.save_api_key(api_key)
             return jsonify({'success': True})
         return jsonify({'error': 'API key is required'}), 400
-    return render_template('settings.html', 
-                         has_api_key=bool(mistral_service.api_key))
+    return render_template('settings.html')
 
 @main.route('/upload', methods=['POST'])
 def upload_file():
-    """Handle file upload and OCR processing."""
     try:
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
